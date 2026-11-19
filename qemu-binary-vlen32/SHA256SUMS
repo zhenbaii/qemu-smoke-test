@@ -1,0 +1,4 @@
+9777e92c2bbcb8475f5be2a3d5142bdc70bbf512a1e044939de70ac0726dea7b  qemu-binary-vlen32/debug-nopatch/qemu-system-riscv64
+f2637635c71cfd6e15cc4e79960be8db008ef23f705042e260d28dffc162e592  qemu-binary-vlen32/debug-patch/qemu-system-riscv64
+b07ddefa4021bcca84d5d89cefa455953a059022ed2889cad351acab68077ba4  qemu-binary-vlen32/release-nopatch/qemu-system-riscv64
+d9076093244c268e52d4651734e3de16b5b75bac809106b049ff5f313e19d6ef  qemu-binary-vlen32/release-patch/qemu-system-riscv64

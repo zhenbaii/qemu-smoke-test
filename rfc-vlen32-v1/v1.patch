@@ -1,0 +1,120 @@
+From 894d37820622fa6927ef83bc64bced7be332164f Mon Sep 17 00:00:00 2001
+From: WX Chen <wxchen0913@gmail.com>
+Date: Wed, 18 Nov 2026 13:41:35 +0800
+Subject: [PATCH] tcg: Support maxsz=4 in GVEC descriptors
+
+This patch adds support for oprsz = maxsz = 4 in GVEC descriptors.
+
+The MAXSZ field currently encodes and decodes sizes as follows:
+
+    encoded_maxsz = maxsz / 8 - 1
+    maxsz = (encoded_maxsz + 1) * 8
+
+Field value 2 would represent 24 bytes. However, maxsz values of
+16 bytes or more must be multiples of 16, so this field value is
+unused by valid descriptors.
+
+In this patch, we reuse MAXSZ field value 2 to represent 4 bytes.
+As for oprsz, OPRSZ field value 2 already means "use MAXSZ", allowing
+oprsz to follow maxsz without changing the OPRSZ decoding logic.
+
+All existing valid descriptor encodings are preserved. The size
+and alignment requirements for generic GVEC operation expansion
+remain unchanged.
+
+Suggested-by: Chao Liu <chao.liu@processmission.com>
+Signed-off-by: WX Chen <wxchen0913@gmail.com>
+---
+ include/tcg/tcg-gvec-desc.h | 12 +++++++++---
+ tcg/tcg-op-gvec.c           | 31 ++++++++++++++++++-------------
+ 2 files changed, 27 insertions(+), 16 deletions(-)
+
+diff --git a/include/tcg/tcg-gvec-desc.h b/include/tcg/tcg-gvec-desc.h
+index 94c7d14b26..5e1cd1e5c4 100644
+--- a/include/tcg/tcg-gvec-desc.h
++++ b/include/tcg/tcg-gvec-desc.h
+@@ -23,8 +23,11 @@
+ #include "qemu/bitops.h"
+ 
+ /*
+- * This configuration allows MAXSZ to represent 2048 bytes, and
+- * OPRSZ to match MAXSZ, or represent the smaller values 8, 16, or 32.
++ * MAXSZ represents 4 bytes with field value 2, or otherwise represents
++ * (field value + 1) * 8 bytes, up to 2048 bytes.  Field value 2 would
++ * otherwise represent 24 bytes, which is not a supported maximum size.
++ *
++ * OPRSZ can match MAXSZ, or represent the smaller values 8, 16, or 32.
+  *
+  * Encode this with:
+  *   0, 1, 3 -> 8, 16, 32
+@@ -34,6 +37,7 @@
+  */
+ #define SIMD_MAXSZ_SHIFT   0
+ #define SIMD_MAXSZ_BITS    8
++#define SIMD_MAXSZ_4_CODE  2
+ 
+ #define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+ #define SIMD_OPRSZ_BITS    2
+@@ -47,7 +51,9 @@ uint32_t simd_desc(uint32_t oprsz, uint32_t maxsz, int32_t data);
+ /* Extract the max vector size from a descriptor.  */
+ static inline intptr_t simd_maxsz(uint32_t desc)
+ {
+-    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
++    uint32_t f = extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS);
++
++    return f == SIMD_MAXSZ_4_CODE ? 4 : f * 8 + 8;
+ }
+ 
+ /* Extract the operation size from a descriptor.  */
+diff --git a/tcg/tcg-op-gvec.c b/tcg/tcg-op-gvec.c
+index bc323e2500..99b976ca16 100644
+--- a/tcg/tcg-op-gvec.c
++++ b/tcg/tcg-op-gvec.c
+@@ -97,7 +97,24 @@ uint32_t simd_desc(uint32_t oprsz, uint32_t maxsz, int32_t data)
+ {
+     uint32_t desc = 0;
+ 
+-    check_size_align(oprsz, maxsz, 0);
++    if (maxsz == 4) {
++        tcg_debug_assert(oprsz == 4);
++        oprsz = 2;
++        maxsz = SIMD_MAXSZ_4_CODE;
++    } else {
++        check_size_align(oprsz, maxsz, 0);
++
++        oprsz = (oprsz / 8) - 1;
++        maxsz = (maxsz / 8) - 1;
++
++        /*
++         * OPRSZ is {8,16,32} or matches MAXSZ.  Encode the final case
++         * with '2', as that would otherwise map to 24.
++         */
++        if (oprsz == maxsz) {
++            oprsz = 2;
++        }
++    }
+ 
+     /*
+      * We want to check that 'data' will fit into SIMD_DATA_BITS.
+@@ -113,18 +130,6 @@ uint32_t simd_desc(uint32_t oprsz, uint32_t maxsz, int32_t data)
+     tcg_debug_assert(data == sextract32(data, 0, SIMD_DATA_BITS) ||
+                      data == extract32(data, 0, SIMD_DATA_BITS));
+ 
+-    oprsz = (oprsz / 8) - 1;
+-    maxsz = (maxsz / 8) - 1;
+-
+-    /*
+-     * We have just asserted in check_size_align that either
+-     * oprsz is {8,16,32} or matches maxsz.  Encode the final
+-     * case with '2', as that would otherwise map to 24.
+-     */
+-    if (oprsz == maxsz) {
+-        oprsz = 2;
+-    }
+-
+     desc = deposit32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS, oprsz);
+     desc = deposit32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS, maxsz);
+     desc = deposit32(desc, SIMD_DATA_SHIFT, SIMD_DATA_BITS, data);
+-- 
+2.48.1
+

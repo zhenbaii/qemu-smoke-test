@@ -1,0 +1,5 @@
+rfc-vlen32-v1/build/
+__pycache__/
+qemu-binary-vlen32/*/qemu-system-riscv64
+/*.tar.gz
+/SHA256SUMS
